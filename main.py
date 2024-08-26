@@ -1,4 +1,5 @@
 import csv
+import os
 import random
 from datetime import datetime, timedelta
 
@@ -14,15 +15,17 @@ def gen_random_value(min_val: float, max_val: float, digits: int):
     return round(random.uniform(min_val, max_val), digits)
 
 
-def generate_sensor_data(num_records: int, last_data: datetime, interval: int):
+def generate_sensor_data(num_records: int, last_data: datetime, interval: int, filename: str):
     """
     Generates a CSV file to simulate sensor's data
     :param num_records: number of records to generate
     :param last_data: last data timestamp
     :param interval: interval between records
+    :param filename: name of the CSV file
     :return: file_path
     """
-    with open('sensor_data.csv', mode='w', newline='') as file:
+
+    with open(filename, mode="w", newline="") as file:
         writer = csv.writer(file)
         writer.writerow(["SensorID", "Timestamp", "CO (ppm)", "O3 (ppm)", "Latitude", "Longitude"])
 
@@ -41,5 +44,13 @@ def generate_sensor_data(num_records: int, last_data: datetime, interval: int):
 
 
 if __name__ == '__main__':
-    generate_sensor_data(100, datetime.now(), 8)
+    file = "./sensor_data.csv"
+    last_data_timestamp = datetime.now()
+    interval = 8
+    records = 100
+    if not os.path.exists(file):
+        generate_sensor_data(records, last_data_timestamp, interval, file)
+    else:
+        os.remove(file)
+        generate_sensor_data(records, datetime.now(), interval, file)
     print("Archivo 'sensor_data.csv' generado con éxito.")
