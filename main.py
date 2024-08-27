@@ -19,7 +19,7 @@ def gen_random_value(min_val: float, max_val: float, digits: int):
     return round(random.uniform(min_val, max_val), digits)
 
 
-def generate_sensor_data(num_records: int, last_data: datetime, interval: int, filename: str):
+def gen_sensor_data(num_records: int, last_data: datetime, interval: int, filename: str):
     """
     Generates a CSV file to simulate sensor's data
     :param num_records: number of records to generate
@@ -56,31 +56,83 @@ def generate_sensor_data(num_records: int, last_data: datetime, interval: int, f
             writer.writerow([f'Sensor{sensor_id}', timestamp_iso, co, o3, lat, lon])
 
 
+def classify_air_quality(co_value: float, o3_value: float):
+    quality_levels = {"level1": ("green", "Buena"),
+                      "level2": ("beige", "Moderada"),
+                      "level3": ("orange", "Dañina a la salud para grupos sensibles"),
+                      "level4": ("red", "Dañina a la salud"),
+                      "level5": ("purple", "Muy dañina a la salud"),
+                      "level6": ("darkred", "Peligrosa")
+                      }
+    co_level, color = (
+        quality_levels["level1"] if co_value <= 4.4 else
+        quality_levels["level2"] if co_value <= 9.4 else
+        quality_levels["level3"] if co_value <= 12.4 else
+        quality_levels["level4"] if co_value <= 15.4 else
+        quality_levels["level5"] if co_value <= 30.4 else
+        quality_levels["level6"]
+    )
+
+    o3_level, color = (
+        quality_levels["level1"] if o3_value <= 0.059 else
+        quality_levels["level2"] if o3_value <= 0.075 else
+        quality_levels["level3"] if o3_value <= 0.095 else
+        quality_levels["level4"] if o3_value <= 0.115 else
+        quality_levels["level5"] if o3_value <= 0.374 else
+        quality_levels["level6"]
+    )
+
+    general_level, color = (
+        quality_levels["level1"] if 'Buena' in (co_level, o3_level) else
+        quality_levels["level2"] if 'Moderada' in (co_level, o3_level) else
+        quality_levels["level3"] if 'Dañina a la salud para grupos sensibles' in (co_level, o3_level) else
+        quality_levels["level4"] if 'Dañina a la salud' in (co_level, o3_level) else
+        quality_levels["level5"] if o3_value <= 0.374 else
+        quality_levels["level6"]
+    )
+
+    return general_level, color
+
+
 if __name__ == '__main__':
     file = "./sensor_data.csv"
     last_data_timestamp = datetime.now()
     interval = 8
     records = 100
     if not os.path.exists(file):
-        generate_sensor_data(records, last_data_timestamp, interval, file)
+        gen_sensor_data(records, last_data_timestamp, interval, file)
+        print(f"Archivo {file} generado con éxito.")
+
     else:
         os.remove(file)
-        generate_sensor_data(records, datetime.now(), interval, file)
+        gen_sensor_data(records, datetime.now(), interval, file)
+        print(f"Archivo {file} generado con éxito.")
 
-    # Cleaning duplicates to get unique information
-    df = pd.read_csv(file).drop_duplicates(subset='SensorID')
+    # Sorting dataframe from the most recent sensor data to the oldest
+    df = (pd.read_csv(file)
+          # .drop_duplicates(subset="SensorID")
+          .sort_values(by="Timestamp", ascending=False)
+          )
+    sensor_positions = df.groupby("SensorID")[["Latitude", "Longitude"]].first()
+    processed_values = df.groupby("SensorID")[["CO (ppm)", "O3 (ppm)"]].median()
+    data = processed_values.join(sensor_positions).reset_index()
 
-    # Obtaining coordinates for each sensor
-    df = df[['SensorID', 'Latitude', 'Longitude']]
+    print(data)
 
-    # Generating a new map centered in Lima
+    # Generate a new map
     m = folium.Map(location=[-12.046374, -77.042793], zoom_start=6)
-    for i, row in df.iterrows():
+
+    # Creating a marker for each sensorID
+    # When clicking to the marker it shows a popup with last information
+    for i, row in data.iterrows():
+        info_tuple = classify_air_quality(row["CO (ppm)"], row["O3 (ppm)"])
+        row_df = pd.DataFrame(data=[row], columns=["SensorID", "CO (ppm)", "O3 (ppm)", "Latitude", "Longitude"])
+        html = row_df.to_html(classes="table table-striped table-hover table-condensed table-responsive", index=False)
         folium.Marker(
-            location=[row['Latitude'], row['Longitude']],
-            popup=f"{row['SensorID']}",
-            icon=folium.Icon(color='blue', icon='info-sign')
+            location=[row["Latitude"], row["Longitude"]],
+            popup=f"{html}",
+            icon=folium.Icon(color=info_tuple[0], icon="info-sign")
         ).add_to(m)
+
+    # Save map as HTML
     m.save("sensor_map.html")
-    print(df)
-    print("Archivo 'sensor_data.csv' generado con éxito.")
