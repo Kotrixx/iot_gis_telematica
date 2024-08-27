@@ -45,8 +45,8 @@ def generate_sensor_data(num_records: int, last_data: datetime, interval: int, f
             # There's a necessity to store values in a global variable
             global sensor_coordinates
             if sensor_id not in sensor_coordinates:
-                lat = gen_random_value(-10.27167, -13.32111, 6)
-                lon = gen_random_value(-75.50500, -77.88389, 6)
+                lat = gen_random_value(-9, -10, 6)
+                lon = gen_random_value(-75, -77, 6)
                 sensor_coordinates[sensor_id] = (lat, lon)
             else:
                 lat, lon = sensor_coordinates[sensor_id]
@@ -66,6 +66,21 @@ if __name__ == '__main__':
     else:
         os.remove(file)
         generate_sensor_data(records, datetime.now(), interval, file)
-    df = pd.read_csv(file)
+
+    # Cleaning duplicates to get unique information
+    df = pd.read_csv(file).drop_duplicates(subset='SensorID')
+
+    # Obtaining coordinates for each sensor
+    df = df[['SensorID', 'Latitude', 'Longitude']]
+
+    # Generating a new map centered in Lima
+    m = folium.Map(location=[-12.046374, -77.042793], zoom_start=6)
+    for i, row in df.iterrows():
+        folium.Marker(
+            location=[row['Latitude'], row['Longitude']],
+            popup=f"{row['SensorID']}",
+            icon=folium.Icon(color='blue', icon='info-sign')
+        ).add_to(m)
+    m.save("sensor_map.html")
     print(df)
     print("Archivo 'sensor_data.csv' generado con éxito.")
