@@ -1,7 +1,11 @@
 import csv
 import os
 import random
+import pandas as pd
+import folium
 from datetime import datetime, timedelta
+
+sensor_coordinates = {}
 
 
 def gen_random_value(min_val: float, max_val: float, digits: int):
@@ -36,8 +40,17 @@ def generate_sensor_data(num_records: int, last_data: datetime, interval: int, f
             # ISO format is a date format that JSON supports (this format might make easier future implementations)
             timestamp_iso = timestamp.isoformat()
             sensor_id = int(gen_random_value(0, 10, 0))
-            lat = gen_random_value(-10.27167, -13.32111, 6)
-            lon = gen_random_value(-75.50500, -77.88389, 6)
+
+            # Assuming that coordinates don't change
+            # There's a necessity to store values in a global variable
+            global sensor_coordinates
+            if sensor_id not in sensor_coordinates:
+                lat = gen_random_value(-10.27167, -13.32111, 6)
+                lon = gen_random_value(-75.50500, -77.88389, 6)
+                sensor_coordinates[sensor_id] = (lat, lon)
+            else:
+                lat, lon = sensor_coordinates[sensor_id]
+
             co = gen_random_value(0, 50.5, 3)
             o3 = gen_random_value(0.000, 0.400, 3)
             writer.writerow([f'Sensor{sensor_id}', timestamp_iso, co, o3, lat, lon])
@@ -53,4 +66,6 @@ if __name__ == '__main__':
     else:
         os.remove(file)
         generate_sensor_data(records, datetime.now(), interval, file)
+    df = pd.read_csv(file)
+    print(df)
     print("Archivo 'sensor_data.csv' generado con éxito.")
