@@ -6,6 +6,14 @@ import folium
 from datetime import datetime, timedelta
 
 sensor_coordinates = {}
+legend_html = '''<div style=" position: fixed; bottom: 50px; left: 50px; width: 300px; height: 200px; border:2px 
+    solid grey; z-index:9999; font-size:14px; "> &nbsp; <strong>Leyenda</strong> <br> &nbsp; <i class="fa 
+    fa-map-marker fa-2x" style="color:green"></i>&nbsp; Buena <br> &nbsp; <i class="fa fa-map-marker fa-2x" 
+    style="color:beige"></i>&nbsp; Moderada <br> &nbsp; <i class="fa fa-map-marker fa-2x" 
+    style="color:orange"></i>&nbsp; Dañina a la salud para grupos sensibles <br> &nbsp; <i class="fa fa-map-marker 
+    fa-2x" style="color:red"></i>&nbsp; Dañina a la salud <br> &nbsp; <i class="fa fa-map-marker fa-2x" 
+    style="color:purple"></i>&nbsp; Muy dañina a la salud <br> &nbsp; <i class="fa fa-map-marker fa-2x" 
+    style="color:darkred"></i>&nbsp; Peligrosa <br> </div>'''
 
 
 def gen_random_value(min_val: float, max_val: float, digits: int):
@@ -51,8 +59,8 @@ def gen_sensor_data(num_records: int, last_data: datetime, interval: int, filena
             else:
                 lat, lon = sensor_coordinates[sensor_id]
 
-            co = gen_random_value(0, 50.5, 3)
-            o3 = gen_random_value(0.000, 0.400, 3)
+            co = gen_random_value(0, 19, 3)
+            o3 = gen_random_value(0.000, 0.200, 3)
             writer.writerow([f'Sensor{sensor_id}', timestamp_iso, co, o3, lat, lon])
 
 
@@ -64,7 +72,7 @@ def classify_air_quality(co_value: float, o3_value: float):
                       "level5": ("purple", "Muy dañina a la salud"),
                       "level6": ("darkred", "Peligrosa")
                       }
-    co_level, color = (
+    color, co_level = (
         quality_levels["level1"] if co_value <= 4.4 else
         quality_levels["level2"] if co_value <= 9.4 else
         quality_levels["level3"] if co_value <= 12.4 else
@@ -73,7 +81,7 @@ def classify_air_quality(co_value: float, o3_value: float):
         quality_levels["level6"]
     )
 
-    o3_level, color = (
+    color, o3_level = (
         quality_levels["level1"] if o3_value <= 0.059 else
         quality_levels["level2"] if o3_value <= 0.075 else
         quality_levels["level3"] if o3_value <= 0.095 else
@@ -82,7 +90,7 @@ def classify_air_quality(co_value: float, o3_value: float):
         quality_levels["level6"]
     )
 
-    general_level, color = (
+    color, general_level, = (
         quality_levels["level1"] if 'Buena' in (co_level, o3_level) else
         quality_levels["level2"] if 'Moderada' in (co_level, o3_level) else
         quality_levels["level3"] if 'Dañina a la salud para grupos sensibles' in (co_level, o3_level) else
@@ -91,14 +99,14 @@ def classify_air_quality(co_value: float, o3_value: float):
         quality_levels["level6"]
     )
 
-    return general_level, color
+    return color, general_level
 
 
 if __name__ == '__main__':
     file = "./sensor_data.csv"
     last_data_timestamp = datetime.now()
     interval = 8
-    records = 100
+    records = 10000
     if not os.path.exists(file):
         gen_sensor_data(records, last_data_timestamp, interval, file)
         print(f"Archivo {file} generado con éxito.")
@@ -120,19 +128,28 @@ if __name__ == '__main__':
     print(data)
 
     # Generate a new map
-    m = folium.Map(location=[-12.046374, -77.042793], zoom_start=6)
+    m = folium.Map(location=[-9.56, -75.2], zoom_start=7)
 
     # Creating a marker for each sensorID
     # When clicking to the marker it shows a popup with last information
     for i, row in data.iterrows():
         info_tuple = classify_air_quality(row["CO (ppm)"], row["O3 (ppm)"])
-        row_df = pd.DataFrame(data=[row], columns=["SensorID", "CO (ppm)", "O3 (ppm)", "Latitude", "Longitude"])
+        row_df = pd.DataFrame({
+            "SensorID": [row["SensorID"]],
+            "CO (ppm)": [row["CO (ppm)"]],
+            "O3 (ppm)": [row["O3 (ppm)"]],
+            "Latitude": [row["Latitude"]],
+            "Longitude": [row["Longitude"]],
+            "Air quality": [info_tuple[1]]
+        })
         html = row_df.to_html(classes="table table-striped table-hover table-condensed table-responsive", index=False)
         folium.Marker(
             location=[row["Latitude"], row["Longitude"]],
             popup=f"{html}",
             icon=folium.Icon(color=info_tuple[0], icon="info-sign")
         ).add_to(m)
+
+    m.get_root().html.add_child(folium.Element(legend_html))
 
     # Save map as HTML
     m.save("sensor_map.html")
