@@ -1,6 +1,9 @@
 import csv
 import os
 import random
+import threading
+import time
+
 import pandas as pd
 import folium
 from datetime import datetime, timedelta
@@ -37,34 +40,33 @@ def gen_sensor_data(num_records: int, last_data: datetime, interval: int, filena
     :return: file_path
     """
 
-    with open(filename, mode="w", newline="") as file:
-        writer = csv.writer(file)
-        writer.writerow(["SensorID", "Timestamp", "CO (ppm)", "O3 (ppm)", "Latitude", "Longitude"])
-
-        for i in range(num_records):
-            # Assuming that sensors sends data every 8 hours
-            time_interval = timedelta(hours=interval)
-            timestamp = (last_data - i * time_interval)
-            # ISO format is a date format that JSON supports (this format might make easier future implementations)
-            timestamp_iso = timestamp.isoformat()
-            sensor_id = int(gen_random_value(0, 10, 0))
-
-            # Assuming that coordinates don't change
-            # There's a necessity to store values in a global variable
-            global sensor_coordinates
-            if sensor_id not in sensor_coordinates:
-                lat = gen_random_value(-9, -10, 6)
-                lon = gen_random_value(-75, -77, 6)
-                sensor_coordinates[sensor_id] = (lat, lon)
-            else:
-                lat, lon = sensor_coordinates[sensor_id]
-
+    while True:
+        last_data_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        new_data = []
+        for _ in range(10):
+            sensor_id = random.randint(0, 10)
+            lat, lon = sensor_coordinates.get(sensor_id, (gen_random_value(-9, -10, 6), gen_random_value(-75, -77, 6)))
+            sensor_coordinates[sensor_id] = (lat, lon)
             co = gen_random_value(0, 19, 3)
             o3 = gen_random_value(0.000, 0.200, 3)
-            writer.writerow([f'Sensor{sensor_id}', timestamp_iso, co, o3, lat, lon])
+            timestamp = last_data_timestamp
+            new_data.append([f'Sensor{sensor_id}', timestamp, co, o3, lat, lon])
+
+        with open(filename, mode='a', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerows(new_data)
+        print(f"New datapoint for Sensor{sensor_id}: CO = {co}, O3 = {o3}, Lat = {lat}, Lon = {lon}, "
+              f"timestamp = {timestamp}")
+        time.sleep(interval)
 
 
 def classify_air_quality(co_value: float, o3_value: float):
+    """
+    Given a CO value and a O3 make a evaluation of the air quality
+    :param co_value: float that indicates CO value
+    :param o3_value: float that indicates O3 value
+    :return: Tuple with a color and a status (Buena, Moderada, etc)
+    """
     quality_levels = {"level1": ("green", "Buena"),
                       "level2": ("beige", "Moderada"),
                       "level3": ("orange", "Dañina a la salud para grupos sensibles"),
@@ -102,36 +104,22 @@ def classify_air_quality(co_value: float, o3_value: float):
     return color, general_level
 
 
-if __name__ == '__main__':
-    file = "./sensor_data.csv"
-    last_data_timestamp = datetime.now()
-    interval = 8
-    records = 10000
-    if not os.path.exists(file):
-        gen_sensor_data(records, last_data_timestamp, interval, file)
-        print(f"Archivo {file} generado con éxito.")
-
-    else:
-        os.remove(file)
-        gen_sensor_data(records, datetime.now(), interval, file)
-        print(f"Archivo {file} generado con éxito.")
-
-    # Sorting dataframe from the most recent sensor data to the oldest
+def build_map(file: str):
+    """
+    Reads the CSV file and generates a map with markers for each sensor
+    :param file: filename to read
+    :return:
+    """
     df = (pd.read_csv(file)
-          # .drop_duplicates(subset="SensorID")
           .sort_values(by="Timestamp", ascending=False)
           )
-    sensor_positions = df.groupby("SensorID")[["Latitude", "Longitude"]].first()
-    processed_values = df.groupby("SensorID")[["CO (ppm)", "O3 (ppm)"]].median()
-    data = processed_values.join(sensor_positions).reset_index()
 
+    data = df.groupby("SensorID").first().reset_index()
     print(data)
 
     # Generate a new map
     m = folium.Map(location=[-9.56, -75.2], zoom_start=7)
 
-    # Creating a marker for each sensorID
-    # When clicking to the marker it shows a popup with last information
     for i, row in data.iterrows():
         info_tuple = classify_air_quality(row["CO (ppm)"], row["O3 (ppm)"])
         row_df = pd.DataFrame({
@@ -140,7 +128,8 @@ if __name__ == '__main__':
             "O3 (ppm)": [row["O3 (ppm)"]],
             "Latitude": [row["Latitude"]],
             "Longitude": [row["Longitude"]],
-            "Air quality": [info_tuple[1]]
+            "Air quality": [info_tuple[1]],
+            "Timestamp": [row["Timestamp"]]
         })
         html = row_df.to_html(classes="table table-striped table-hover table-condensed table-responsive", index=False)
         folium.Marker(
@@ -150,6 +139,29 @@ if __name__ == '__main__':
         ).add_to(m)
 
     m.get_root().html.add_child(folium.Element(legend_html))
+    m.save("./sensor_map.html")
 
-    # Save map as HTML
-    m.save("sensor_map.html")
+
+if __name__ == '__main__':
+    try:
+        file = "./sensor_data.csv"
+        interval = 8
+
+        # Create just the header for the CSV file (emulating a database)
+        if not os.path.exists(file):
+            with open(file, mode='w', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(["SensorID", "Timestamp", "CO (ppm)", "O3 (ppm)", "Latitude", "Longitude"])
+
+        # Generating data as a background process
+        data_thread = threading.Thread(target=gen_sensor_data, args=(0, datetime.now(), interval, file))
+        data_thread.start()
+
+        # Building the map every 60 sec
+        while True:
+            print("arme mapa")
+            time.sleep(10)
+            build_map(file)
+            time.sleep(50)
+    except KeyboardInterrupt:
+        print("Program finished")
